@@ -163,9 +163,10 @@
             emojiSize: 50,    
             mode: 'STANDBY', panelOpen: false,
             lastX: null, lastY: null, smoothX: 0, smoothY: 0, 
-            alpha: 0.85,      // تم رفع قيمة ألفا ليكون التتبع فورياً وملتصقاً تماماً بالإصبع دون أي تأخير ملموس
+            alpha: 1.0,      // تم جعل الاستجابة 1.0 فورية تماماً بدون أي تأخير من الفلتر
             hoverTarget: null, hoverStart: null, hoverDuration: 250, 
-            lastToggleTime: 0, heldEmoji: null
+            lastToggleTime: 0, heldEmoji: null,
+            isTracking: false // علم جديد لمعرفة حالة وجود يد في الفريم السابق لمنع القفزات
         };
 
         const emojis = ['👑', '🦁', '🤩', '😎', '😂', '🥳', '✨', '🔥', '❤️', '💡', '🚀', '⭐', '🎨', '🎉', '🎈', '⚡', '💯', '🌈', '🌍', '💎', '🍿', '👻', '🎮', '🌸'];
@@ -283,7 +284,7 @@
             iCtx.clearRect(0, 0, iCanvas.width, iCanvas.height);
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                state.lastX = null; state.lastY = null;
+                state.isTracking = false; // فقدنا التتبع، نلغي العلم لمنع القفزات عند العودة
                 modeDisplay.innerText = "ابحث عن يدك أمام الكاميرا...";
                 return;
             }
@@ -292,8 +293,13 @@
             const rawX = (1 - hl[8].x) * iCanvas.width;
             const rawY = hl[8].y * iCanvas.height;
 
-            if (state.lastX === null) { 
-                state.smoothX = rawX; state.smoothY = rawY; 
+            // ظهور فوري للمؤشر بمجرد رؤية الإصبع دون أي انتقال بطيء أو تأخير
+            if (!state.isTracking) { 
+                state.smoothX = rawX; 
+                state.smoothY = rawY; 
+                state.lastX = rawX;
+                state.lastY = rawY;
+                state.isTracking = true;
             } else {
                 state.smoothX += state.alpha * (rawX - state.smoothX);
                 state.smoothY += state.alpha * (rawY - state.smoothY);
@@ -305,9 +311,11 @@
             checkAirInteraction(state.smoothX, state.smoothY);
 
             if (state.mode === 'DRAW') {
-                if (!state.heldEmoji && state.lastX !== null) {
-                    dCtx.beginPath(); dCtx.moveTo(state.lastX, state.lastY); dCtx.lineTo(state.smoothX, state.smoothY);
-                    dCtx.strokeStyle = state.color; dCtx.lineWidth = state.size; dCtx.lineCap = 'round';
+                if (!state.heldEmoji) {
+                    dCtx.beginPath(); 
+                    dCtx.moveTo(state.lastX, state.lastY); 
+                    dCtx.lineTo(state.smoothX, state.smoothY);
+                    dCtx.strokeStyle = state.color; dCtx.lineWidth = state.size; dCtx.lineCap = 'round'; dCtx.lineJoin = 'round';
                     dCtx.shadowBlur = state.size * 1.2; dCtx.shadowColor = state.color;
                     dCtx.stroke(); dCtx.shadowBlur = 0;
                 }
@@ -318,9 +326,10 @@
                     eCtx.fillText(state.heldEmoji, state.smoothX, state.smoothY);
                     state.heldEmoji = null; 
                 }
-                state.lastX = null; state.lastY = null;
+                state.lastX = state.smoothX; state.lastY = state.smoothY;
             } else {
-                state.lastX = null; state.lastY = null;
+                // في وضع الـ STANDBY أو الـ PAUSE نحدث الإحداثيات السابقة فوراً لتكون جاهزة عند العودة للرسم دون تقطيع
+                state.lastX = state.smoothX; state.lastY = state.smoothY;
             }
 
             // رسم مؤشر الرأس المضيء فائق الاستجابة
@@ -343,8 +352,8 @@
 
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
         
-        // تم رفع الـ Confidence إلى 0.85 والـ Tracking إلى 0.85 لضمان عدم حدوث أي تقطيع في الخط نهائياً أثناء الحركة السريعة
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.85, minTrackingConfidence: 0.85 });
+        // ضبط دقة التتبع لتكون بأعلى جودة وسرعة استجابة فائقة
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
         hands.onResults(onResults);
 
         const camera = new Camera(video, {
