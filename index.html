@@ -163,10 +163,11 @@
             emojiSize: 50,    
             mode: 'STANDBY', panelOpen: false,
             lastX: null, lastY: null, smoothX: 0, smoothY: 0, 
-            alpha: 1.0,      // تم جعل الاستجابة 1.0 فورية تماماً بدون أي تأخير من الفلتر
+            alpha: 0.75,      // تم موازنتها لتعطي نعومة فائقة عند السحب السريع
             hoverTarget: null, hoverStart: null, hoverDuration: 250, 
             lastToggleTime: 0, heldEmoji: null,
-            isTracking: false // علم جديد لمعرفة حالة وجود يد في الفريم السابق لمنع القفزات
+            isTracking: false,
+            jitterThreshold: 2.5 // المسافة بالبكسل لإلغاء نويز الكاميرا وتثبيت المؤشر تماماً عند السكون
         };
 
         const emojis = ['👑', '🦁', '🤩', '😎', '😂', '🥳', '✨', '🔥', '❤️', '💡', '🚀', '⭐', '🎨', '🎉', '🎈', '⚡', '💯', '🌈', '🌍', '💎', '🍿', '👻', '🎮', '🌸'];
@@ -284,7 +285,7 @@
             iCtx.clearRect(0, 0, iCanvas.width, iCanvas.height);
 
             if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                state.isTracking = false; // فقدنا التتبع، نلغي العلم لمنع القفزات عند العودة
+                state.isTracking = false;
                 modeDisplay.innerText = "ابحث عن يدك أمام الكاميرا...";
                 return;
             }
@@ -293,7 +294,6 @@
             const rawX = (1 - hl[8].x) * iCanvas.width;
             const rawY = hl[8].y * iCanvas.height;
 
-            // ظهور فوري للمؤشر بمجرد رؤية الإصبع دون أي انتقال بطيء أو تأخير
             if (!state.isTracking) { 
                 state.smoothX = rawX; 
                 state.smoothY = rawY; 
@@ -301,8 +301,13 @@
                 state.lastY = rawY;
                 state.isTracking = true;
             } else {
-                state.smoothX += state.alpha * (rawX - state.smoothX);
-                state.smoothY += state.alpha * (rawY - state.smoothY);
+                // حساب المسافة بين الإحداثيات الحالية والسابقة
+                const dist = Math.hypot(rawX - state.smoothX, rawY - state.smoothY);
+                // إذا كانت الحركة أكبر من الحد المسموح، نقوم بالتحديث، وإلا يثبت تماماً في مكانه بنسبة 100%
+                if (dist > state.jitterThreshold) {
+                    state.smoothX += state.alpha * (rawX - state.smoothX);
+                    state.smoothY += state.alpha * (rawY - state.smoothY);
+                }
             }
 
             state.mode = detectGesture(hl);
@@ -328,15 +333,14 @@
                 }
                 state.lastX = state.smoothX; state.lastY = state.smoothY;
             } else {
-                // في وضع الـ STANDBY أو الـ PAUSE نحدث الإحداثيات السابقة فوراً لتكون جاهزة عند العودة للرسم دون تقطيع
                 state.lastX = state.smoothX; state.lastY = state.smoothY;
             }
 
-            // رسم مؤشر الرأس المضيء فائق الاستجابة
+            // رسم مؤشر الرأس المضيء الثابت والمستقر تماماً
             iCtx.beginPath(); iCtx.arc(state.smoothX, state.smoothY, state.size/2 + 8, 0, 2*Math.PI);
             iCtx.fillStyle = state.color; iCtx.fill(); iCtx.strokeStyle = '#fff'; iCtx.lineWidth = 2; iCtx.stroke();
 
-            // الإيموجي ملتصق بالإصبع بشكل فوري
+            // الإيموجي ملتصق بالإصبع بشكل فوري ومستقر
             if (state.heldEmoji) {
                 iCtx.font = `${state.emojiSize}px Arial`; iCtx.textAlign = 'center'; iCtx.textBaseline = 'middle';
                 iCtx.fillText(state.heldEmoji, state.smoothX, state.smoothY);
@@ -352,15 +356,15 @@
 
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
         
-        // ضبط دقة التتبع لتكون بأعلى جودة وسرعة استجابة فائقة
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
+        // رفع الحساسية وسرعة معالجة الفريمات لمنع التقطيع نهائياً
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.7 });
         hands.onResults(onResults);
 
         const camera = new Camera(video, {
             onFrame: async () => { await hands.send({ image: video }); },
             width: 1280, height: 720
         });
-        camera.start().then(() => modeDisplay.innerText = "النظام جاهز تماماً! المؤشر الآن ملتصق تماماً وثابت على إصبع السبابة دون تقطيع.");
+        camera.start().then(() => modeDisplay.innerText = "النظام جاهز تماماً! المؤشر الآن ثابت 100% على إصبع السبابة.");
     </script>
 </body>
 </html>
